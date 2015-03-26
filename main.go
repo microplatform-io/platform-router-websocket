@@ -113,7 +113,12 @@ func main() {
 
 	n := negroni.Classic()
 	n.Use(negroni.HandlerFunc(func(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-		w.Header().Add("Access-Control-Allow-Origin", "http://local.spoofcard.com")
+		if origin := r.Header.Get("Origin"); origin != "" {
+			w.Header().Add("Access-Control-Allow-Origin", origin)
+		} else {
+			w.Header().Add("Access-Control-Allow-Origin", "null")
+		}
+
 		w.Header().Add("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE")
 		w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
 		w.Header().Add("Access-Control-Allow-Credentials", "true")
