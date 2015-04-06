@@ -50,20 +50,26 @@ func main() {
 	}
 
 	server.On("connection", func(so socketio.Socket) {
-		log.Println("on connection")
+		socketId := so.Id()
+
+		log.Printf("{socket_id:'%s'} - connected", socketId)
 
 		so.On("request", func(msg string) {
 			request := &Request{}
 			if err := json.Unmarshal([]byte(msg), request); err != nil {
-				log.Println("> failed to decode request:", err)
+				log.Println("{socket_id:'%s', request_id:''} - failed to decode request:", socketId, err)
 				return
 			}
 
+			log.Printf("{socket_id:'%s', request_id:'%s'} - decoding hex encoded protobuf", socketId, request.RequestId)
+
 			protobufBytes, err := hex.DecodeString(request.Protobuf)
 			if err != nil {
-				log.Println("> failed to decode protobuf hex string:", err)
+				log.Printf("{socket_id:'%s', request_id:'%s'} - failed to decode protobuf hex string: %s", socketId, request.RequestId, err)
 				return
 			}
+
+			log.Printf("{socket_id:'%s', request_id:'%s'} - routing message", socketId, request.RequestId)
 
 			routedMessage, err := standardRouter.Route(&platform.RoutedMessage{
 				Method:   platform.Int32(request.Method),
@@ -73,6 +79,8 @@ func main() {
 
 			// TODO(bmoyles0117):Don't always assume this is a timeout..
 			if err != nil {
+				log.Printf("{socket_id:'%s', request_id:'%s'} - failed to route message: %s", socketId, request.RequestId, err)
+
 				errorBytes, _ := platform.Marshal(&platform.Error{
 					Message: platform.String("API Request has timed out"),
 				})
@@ -84,6 +92,8 @@ func main() {
 				}
 			}
 
+			log.Printf("{socket_id:'%s', request_id:'%s'} - marshalling response", socketId, request.RequestId)
+
 			responseBytes, err := json.Marshal(&Request{
 				RequestId: request.RequestId,
 				Method:    routedMessage.GetMethod(),
@@ -91,20 +101,24 @@ func main() {
 				Protobuf:  hex.EncodeToString(routedMessage.GetBody()),
 			})
 			if err != nil {
-				log.Println("> failed to encode response:", err)
+				log.Printf("{socket_id:'%s', request_id:'%s'} - failed to marshal response: %s", socketId, request.RequestId, err)
 				return
 			}
 
-			so.Emit(request.RequestId, string(responseBytes))
+			log.Printf("{socket_id:'%s', request_id:'%s'} - emitting response to the client", socketId, request.RequestId)
+
+			if err := so.Emit(request.RequestId, string(responseBytes)); err != nil {
+				log.Printf("{socket_id:'%s', request_id:'%s'} - failed to emit response to the client: %s", socketId, request.RequestId, err)
+			}
 		})
 
 		so.On("disconnection", func() {
-			log.Println("on disconnect")
+			log.Printf("{socket_id:'%s'} - disconnected", socketId)
 		})
 	})
 
 	server.On("error", func(so socketio.Socket, err error) {
-		log.Println("error:", err)
+		log.Printf("{socket_id:'%s'} - error: %s", so.Id(), err)
 	})
 
 	mux := http.NewServeMux()
