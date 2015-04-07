@@ -76,20 +76,9 @@ func main() {
 				Resource: platform.Int32(request.Resource),
 				Body:     protobufBytes,
 			}, 5*time.Second)
-
-			// TODO(bmoyles0117):Don't always assume this is a timeout..
 			if err != nil {
 				log.Printf("{socket_id:'%s', request_id:'%s'} - failed to route message: %s", socketId, request.RequestId, err)
-
-				errorBytes, _ := platform.Marshal(&platform.Error{
-					Message: platform.String("API Request has timed out"),
-				})
-
-				routedMessage = &platform.RoutedMessage{
-					Method:   platform.Int32(int32(platform.Method_REPLY)),
-					Resource: platform.Int32(int32(platform.Resource_ERROR)),
-					Body:     errorBytes,
-				}
+				return
 			}
 
 			log.Printf("{socket_id:'%s', request_id:'%s'} - marshalling response", socketId, request.RequestId)
