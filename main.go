@@ -139,7 +139,7 @@ func main() {
 		next(w, r)
 	}))
 	n.UseHandler(mux)
-	n.Run(":8088")
+	n.Run(":80")
 }
 
 func getMyIp() (string, error) {
