@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/microplatform-io/platform"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -23,6 +25,7 @@ var (
 
 	rabbitRegex            = regexp.MustCompile("RABBITMQ_[0-9]_PORT_5672_TCP_(ADDR|PORT)")
 	amqpConnectionManagers []*platform.AmqpConnectionManager
+	myIP                   string
 )
 
 type Request struct {
@@ -35,11 +38,16 @@ type Request struct {
 func main() {
 	hostname, _ := os.Hostname()
 
-	publisher := getDefaultMultiPublisher()
+	publisher := getDefaultPublisher()
 
-	subscriber := getDefaultMultiSubscriber("router_" + hostname)
+	subscriber := getDefaultSubscriber("router_" + hostname)
 
 	standardRouter := platform.NewStandardRouter(publisher, subscriber)
+
+	myIP, err := getMyIp()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	server, err := socketio.NewServer(nil)
 	if err != nil {
@@ -110,6 +118,10 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/socket.io/", server)
 	mux.Handle("/", http.FileServer(http.Dir("./asset")))
+	mux.Handle("/server", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusFound)
+		fmt.Fprintf(w, myIP)
+	}))
 
 	n := negroni.Classic()
 	n.Use(negroni.HandlerFunc(func(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
@@ -127,10 +139,36 @@ func main() {
 		next(w, r)
 	}))
 	n.UseHandler(mux)
-	n.Run(":80")
+	n.Run(":8088")
 }
 
-func getDefaultMultiPublisher() platform.Publisher {
+func getMyIp() (string, error) {
+	urls := []string{"http://ifconfig.me/ip", "http://curlmyip.com", "http://icanhazip.com"}
+	respChan := make(chan *http.Response)
+
+	for _, url := range urls {
+		go func(url string, responseChan chan *http.Response) {
+			res, err := http.Get(url)
+			if err == nil {
+				responseChan <- res
+			}
+		}(url, respChan)
+	}
+
+	select {
+	case res := <-respChan:
+		defer res.Body.Close()
+		body, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			return "", err
+		}
+		return string(body), nil
+	case <-time.After(time.Second * 1):
+		return "", errors.New("Timed out trying to fetch ip address.")
+	}
+}
+
+func getDefaultPublisher() platform.Publisher {
 
 	publishers := []platform.Publisher{}
 
@@ -147,14 +185,14 @@ func getDefaultMultiPublisher() platform.Publisher {
 
 	if len(publishers) == 0 {
 
-		log.Fatalf("Failed to create a single publisher: %s\n")
+		log.Fatalln("Failed to create a single publisher.\n")
 	}
 
 	return platform.NewMultiPublisher(publishers...)
 
 }
 
-func getDefaultMultiSubscriber(queue string) platform.Subscriber {
+func getDefaultSubscriber(queue string) platform.Subscriber {
 	subscribers := []platform.Subscriber{}
 	connMgrs := getAmqpConnectionManagers()
 	for _, connMgr := range connMgrs {
@@ -168,7 +206,7 @@ func getDefaultMultiSubscriber(queue string) platform.Subscriber {
 	}
 
 	if len(subscribers) == 0 {
-		log.Fatalf("Failed to create a single subscriber: %s\n")
+		log.Fatalln("Failed to create a single subscriber.\n")
 	}
 
 	return platform.NewMultiSubscriber(subscribers...)
