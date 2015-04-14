@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/codegangsta/negroni"
@@ -25,7 +26,7 @@ var (
 
 	rabbitRegex            = regexp.MustCompile("RABBITMQ_[0-9]_PORT_5672_TCP_(ADDR|PORT)")
 	amqpConnectionManagers []*platform.AmqpConnectionManager
-	myIP                   string
+	serverConfig           *ServerConfig
 )
 
 type Request struct {
@@ -33,6 +34,10 @@ type Request struct {
 	Method    int32  `json:"method"`
 	Resource  int32  `json:"resource"`
 	Protobuf  string `json:"protobuf"`
+}
+
+type ServerConfig struct {
+	IP string `json:"ip"`
 }
 
 func main() {
@@ -44,9 +49,13 @@ func main() {
 
 	standardRouter := platform.NewStandardRouter(publisher, subscriber)
 
-	myIP, err := getMyIp()
+	ip, err := getMyIp()
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	serverConfig = &ServerConfig{
+		IP: ip,
 	}
 
 	server, err := socketio.NewServer(nil)
@@ -120,7 +129,16 @@ func main() {
 	mux.Handle("/", http.FileServer(http.Dir("./asset")))
 	mux.Handle("/server", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusFound)
-		fmt.Fprintf(w, myIP)
+
+		cb := req.FormValue("callback")
+		jsonBytes, _ := json.Marshal(serverConfig)
+
+		if cb == "" {
+			w.Write(jsonBytes)
+			return
+		}
+
+		fmt.Fprintf(w, fmt.Sprintf("%s(%s)", cb, jsonBytes))
 	}))
 
 	n := negroni.Classic()
@@ -139,7 +157,7 @@ func main() {
 		next(w, r)
 	}))
 	n.UseHandler(mux)
-	n.Run(":80")
+	n.Run(":8080")
 }
 
 func getMyIp() (string, error) {
@@ -162,7 +180,7 @@ func getMyIp() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return string(body), nil
+		return strings.Trim(string(body), "\n "), nil
 	case <-time.After(time.Second * 1):
 		return "", errors.New("Timed out trying to fetch ip address.")
 	}
