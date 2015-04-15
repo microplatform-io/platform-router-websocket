@@ -41,7 +41,7 @@ type Request struct {
 type ServerConfig struct {
 	Protocol string `json:"protocol"`
 	Host     string `json:"host"`
-	Port     string `jaon:"port"`
+	Port     string `json:"port"`
 }
 
 func main() {
@@ -138,16 +138,16 @@ func main() {
 	mux.Handle("/socket.io/", server)
 	mux.Handle("/", http.FileServer(http.Dir("./asset")))
 	mux.Handle("/server", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.WriteHeader(http.StatusFound)
-
 		cb := req.FormValue("callback")
 		jsonBytes, _ := json.Marshal(serverConfig)
 
 		if cb == "" {
+			w.Header().Set("Content-Type", "application/json")
 			w.Write(jsonBytes)
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/javascript")
 		fmt.Fprintf(w, fmt.Sprintf("%s(%s)", cb, jsonBytes))
 	}))
 
@@ -191,7 +191,7 @@ func getMyIp() (string, error) {
 			return "", err
 		}
 		return strings.Trim(string(body), "\n "), nil
-	case <-time.After(time.Second * 1):
+	case <-time.After(time.Second * 5):
 		return "", errors.New("Timed out trying to fetch ip address.")
 	}
 }
