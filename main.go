@@ -24,6 +24,8 @@ var (
 	rabbitAddr = os.Getenv("RABBITMQ_PORT_5672_TCP_ADDR")
 	rabbitPort = os.Getenv("RABBITMQ_PORT_5672_TCP_PORT")
 
+	routerPort = os.Getenv("PORT")
+
 	rabbitRegex            = regexp.MustCompile("RABBITMQ_[0-9]_PORT_5672_TCP_(ADDR|PORT)")
 	amqpConnectionManagers []*platform.AmqpConnectionManager
 	serverConfig           *ServerConfig
@@ -37,7 +39,9 @@ type Request struct {
 }
 
 type ServerConfig struct {
-	IP string `json:"ip"`
+	Protocol string `json:"protocol"`
+	Host     string `json:"host"`
+	Port     string `jaon:"port"`
 }
 
 func main() {
@@ -54,8 +58,14 @@ func main() {
 		log.Fatal(err)
 	}
 
+	if routerPort == "" {
+		routerPort = "80"
+	}
+
 	serverConfig = &ServerConfig{
-		IP: ip,
+		Protocol: "http",
+		Host:     ip,
+		Port:     routerPort,
 	}
 
 	server, err := socketio.NewServer(nil)
@@ -157,7 +167,7 @@ func main() {
 		next(w, r)
 	}))
 	n.UseHandler(mux)
-	n.Run(":8080")
+	n.Run(fmt.Sprintf(":%s", routerPort))
 }
 
 func getMyIp() (string, error) {
