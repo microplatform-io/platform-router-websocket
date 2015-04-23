@@ -100,7 +100,7 @@ func main() {
 
 			if err == nil {
 				ipAddr := so.Request().RemoteAddr
-				platformRequest.IpAdddress = platform.String(ipAddr[:strings.Index(ipAddr, ":")]) // lets just chop off the port
+				platformRequest.IpAddress = platform.String(ipAddr[:strings.Index(ipAddr, ":")]) // lets just chop off the port
 
 				newProtobufBytes, err := platform.Marshal(platformRequest)
 				if err == nil {
