@@ -93,13 +93,28 @@ func main() {
 				return
 			}
 
+			log.Printf("Ip Addr of client is : %s", so.Request().RemoteAddr)
+
+			platformRequest := &platform.Request{}
+			err = platform.Unmarshal(protobufBytes, platformRequest)
+
+			if err == nil {
+				ipAddr := so.Request().RemoteAddr
+				platformRequest.IpAdddress = platform.String(ipAddr[:strings.Index(ipAddr, ":")]) // lets just chop off the port
+
+				newProtobufBytes, err := platform.Marshal(platformRequest)
+				if err == nil {
+					protobufBytes = newProtobufBytes
+				}
+			}
+
 			log.Printf("{socket_id:'%s', request_id:'%s'} - routing message", socketId, request.RequestId)
 
 			routedMessage, err := standardRouter.Route(&platform.RoutedMessage{
 				Method:   platform.Int32(request.Method),
 				Resource: platform.Int32(request.Resource),
 				Body:     protobufBytes,
-			}, 5*time.Second)
+			}, 55*time.Second)
 			if err != nil {
 				log.Printf("{socket_id:'%s', request_id:'%s'} - failed to route message: %s", socketId, request.RequestId, err)
 				return
