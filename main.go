@@ -79,65 +79,67 @@ func main() {
 		log.Printf("{socket_id:'%s'} - connected", socketId)
 
 		so.On("request", func(msg string) {
-			request := &Request{}
-			if err := json.Unmarshal([]byte(msg), request); err != nil {
-				log.Println("{socket_id:'%s', request_id:''} - failed to decode request:", socketId, err)
-				return
-			}
-
-			log.Printf("{socket_id:'%s', request_id:'%s'} - decoding hex encoded protobuf", socketId, request.RequestId)
-
-			protobufBytes, err := hex.DecodeString(request.Protobuf)
-			if err != nil {
-				log.Printf("{socket_id:'%s', request_id:'%s'} - failed to decode protobuf hex string: %s", socketId, request.RequestId, err)
-				return
-			}
-
-			log.Printf("Ip Addr of client is : %s", so.Request().RemoteAddr)
-
-			platformRequest := &platform.Request{}
-			err = platform.Unmarshal(protobufBytes, platformRequest)
-
-			if err == nil {
-				ipAddr := so.Request().RemoteAddr
-				platformRequest.IpAddress = platform.String(ipAddr[:strings.Index(ipAddr, ":")]) // lets just chop off the port
-
-				newProtobufBytes, err := platform.Marshal(platformRequest)
-				if err == nil {
-					protobufBytes = newProtobufBytes
+			go func() {
+				request := &Request{}
+				if err := json.Unmarshal([]byte(msg), request); err != nil {
+					log.Println("{socket_id:'%s', request_id:''} - failed to decode request:", socketId, err)
+					return
 				}
-			}
 
-			log.Printf("{socket_id:'%s', request_id:'%s'} - routing message", socketId, request.RequestId)
+				log.Printf("{socket_id:'%s', request_id:'%s'} - decoding hex encoded protobuf", socketId, request.RequestId)
 
-			routedMessage, err := standardRouter.Route(&platform.RoutedMessage{
-				Method:   platform.Int32(request.Method),
-				Resource: platform.Int32(request.Resource),
-				Body:     protobufBytes,
-			}, 55*time.Second)
-			if err != nil {
-				log.Printf("{socket_id:'%s', request_id:'%s'} - failed to route message: %s", socketId, request.RequestId, err)
-				return
-			}
+				protobufBytes, err := hex.DecodeString(request.Protobuf)
+				if err != nil {
+					log.Printf("{socket_id:'%s', request_id:'%s'} - failed to decode protobuf hex string: %s", socketId, request.RequestId, err)
+					return
+				}
 
-			log.Printf("{socket_id:'%s', request_id:'%s'} - marshalling response", socketId, request.RequestId)
+				log.Printf("Ip Addr of client is : %s", so.Request().RemoteAddr)
 
-			responseBytes, err := json.Marshal(&Request{
-				RequestId: request.RequestId,
-				Method:    routedMessage.GetMethod(),
-				Resource:  routedMessage.GetResource(),
-				Protobuf:  hex.EncodeToString(routedMessage.GetBody()),
-			})
-			if err != nil {
-				log.Printf("{socket_id:'%s', request_id:'%s'} - failed to marshal response: %s", socketId, request.RequestId, err)
-				return
-			}
+				platformRequest := &platform.Request{}
+				err = platform.Unmarshal(protobufBytes, platformRequest)
 
-			log.Printf("{socket_id:'%s', request_id:'%s'} - emitting response to the client", socketId, request.RequestId)
+				if err == nil {
+					ipAddr := so.Request().RemoteAddr
+					platformRequest.IpAddress = platform.String(ipAddr[:strings.Index(ipAddr, ":")]) // lets just chop off the port
 
-			if err := so.Emit(request.RequestId, string(responseBytes)); err != nil {
-				log.Printf("{socket_id:'%s', request_id:'%s'} - failed to emit response to the client: %s", socketId, request.RequestId, err)
-			}
+					newProtobufBytes, err := platform.Marshal(platformRequest)
+					if err == nil {
+						protobufBytes = newProtobufBytes
+					}
+				}
+
+				log.Printf("{socket_id:'%s', request_id:'%s'} - routing message", socketId, request.RequestId)
+
+				routedMessage, err := standardRouter.Route(&platform.RoutedMessage{
+					Method:   platform.Int32(request.Method),
+					Resource: platform.Int32(request.Resource),
+					Body:     protobufBytes,
+				}, 55*time.Second)
+				if err != nil {
+					log.Printf("{socket_id:'%s', request_id:'%s'} - failed to route message: %s", socketId, request.RequestId, err)
+					return
+				}
+
+				log.Printf("{socket_id:'%s', request_id:'%s'} - marshalling response", socketId, request.RequestId)
+
+				responseBytes, err := json.Marshal(&Request{
+					RequestId: request.RequestId,
+					Method:    routedMessage.GetMethod(),
+					Resource:  routedMessage.GetResource(),
+					Protobuf:  hex.EncodeToString(routedMessage.GetBody()),
+				})
+				if err != nil {
+					log.Printf("{socket_id:'%s', request_id:'%s'} - failed to marshal response: %s", socketId, request.RequestId, err)
+					return
+				}
+
+				log.Printf("{socket_id:'%s', request_id:'%s'} - emitting response to the client", socketId, request.RequestId)
+
+				if err := so.Emit(request.RequestId, string(responseBytes)); err != nil {
+					log.Printf("{socket_id:'%s', request_id:'%s'} - failed to emit response to the client: %s", socketId, request.RequestId, err)
+				}
+			}()
 		})
 
 		so.On("disconnection", func() {
