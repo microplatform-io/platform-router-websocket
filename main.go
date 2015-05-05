@@ -28,7 +28,7 @@ var (
 
 	rabbitRegex            = regexp.MustCompile("RABBITMQ_[0-9]_PORT_5672_TCP_(ADDR|PORT)")
 	amqpConnectionManagers []*platform.AmqpConnectionManager
-	serverConfig           *ServerConfig
+	routerConfig           *platform.RouterConfig
 )
 
 type Request struct {
@@ -36,12 +36,6 @@ type Request struct {
 	Method    int32  `json:"method"`
 	Resource  int32  `json:"resource"`
 	Protobuf  string `json:"protobuf"`
-}
-
-type ServerConfig struct {
-	Protocol string `json:"protocol"`
-	Host     string `json:"host"`
-	Port     string `json:"port"`
 }
 
 func main() {
@@ -62,15 +56,20 @@ func main() {
 		routerPort = "80"
 	}
 
-	serverConfig = &ServerConfig{
-		Protocol: "http",
-		Host:     ip,
-		Port:     routerPort,
+	routerConfig = &platform.RouterConfig{
+		Protocol: platform.String("http"),
+		Host:     platform.String(ip),
+		Port:     platform.String(routerPort),
 	}
 
 	server, err := socketio.NewServer(nil)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	routerConfigBytes, err := platform.Marshal(routerConfig)
+	if err == nil {
+		publisher.Publish("router.online", routerConfigBytes)
 	}
 
 	server.On("connection", func(so socketio.Socket) {
@@ -156,7 +155,7 @@ func main() {
 	mux.Handle("/", http.FileServer(http.Dir("./asset")))
 	mux.Handle("/server", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		cb := req.FormValue("callback")
-		jsonBytes, _ := json.Marshal(serverConfig)
+		jsonBytes, _ := json.Marshal(routerConfig)
 
 		if cb == "" {
 			w.Header().Set("Content-Type", "application/json")
