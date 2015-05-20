@@ -14,8 +14,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codegangsta/negroni"
+	"github.com/JacobSquires/negroni"
 	"github.com/googollee/go-socket.io"
+)
+
+const (
+	KEY  = "./key"
+	CERT = "./cert"
 )
 
 var (
@@ -155,6 +160,9 @@ func main() {
 	mux.Handle("/", http.FileServer(http.Dir("./asset")))
 	mux.Handle("/server", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		cb := req.FormValue("callback")
+
+		routerConfig := buildRouterConfig(strings.Split(req.Host, ":")[1], ip)
+
 		jsonBytes, _ := json.Marshal(routerConfig)
 
 		if cb == "" {
@@ -183,6 +191,16 @@ func main() {
 		next(w, r)
 	}))
 	n.UseHandler(mux)
+
+	// check if key and cert file exist, if so run tls server as well
+	if _, err = os.Stat(KEY); err == nil {
+		if _, err = os.Stat(CERT); err == nil {
+			go func() {
+				n.RunTLS(fmt.Sprintf(":%s", "443"), CERT, KEY)
+			}()
+		}
+	}
+
 	n.Run(fmt.Sprintf(":%s", routerPort))
 }
 
@@ -279,4 +297,28 @@ func getAmqpConnectionManagers() []*platform.AmqpConnectionManager {
 	}
 
 	return amqpConnectionManagers
+}
+
+func formatHostAddress(ip string) string {
+	hostAddress := strings.Replace(ip, ".", "-", -1)
+
+	return fmt.Sprintf("%s.%s", hostAddress, "microplatform.io")
+}
+
+func buildRouterConfig(port, ip string) *platform.RouterConfig {
+
+	if port == "443" {
+		return &platform.RouterConfig{
+			Protocol: platform.String("https"),
+			Host:     platform.String(formatHostAddress(ip)),
+			Port:     platform.String("443"),
+		}
+	}
+
+	return &platform.RouterConfig{
+		Protocol: platform.String("http"),
+		Host:     platform.String(formatHostAddress(ip)),
+		Port:     platform.String(port),
+	}
+
 }
