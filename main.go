@@ -161,10 +161,16 @@ func main() {
 	mux.Handle("/server", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		cb := req.FormValue("callback")
 
-		routerConfig := buildRouterConfig(strings.Split(req.Host, ":")[1], ip)
+		var routerConfig *platform.RouterConfig
+		if req.TLS != nil {
+			log.Println("Request was sent over ssl")
+			routerConfig = buildRouterConfig("443", ip)
+		} else {
+			log.Println("Request was *NOT* sent over ssl")
+			routerConfig = buildRouterConfig(routerPort, ip)
+		}
 
 		jsonBytes, _ := json.Marshal(routerConfig)
-
 		if cb == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write(jsonBytes)
