@@ -195,6 +195,7 @@ func main() {
 	// check if key and cert file exist, if so run tls server as well
 	if _, err = os.Stat(KEY); err == nil {
 		if _, err = os.Stat(CERT); err == nil {
+			log.Println("KEY and CERT exist, serving TLS.")
 			go func() {
 				n.RunTLS(fmt.Sprintf(":%s", "443"), CERT, KEY)
 			}()
