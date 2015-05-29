@@ -43,6 +43,12 @@ type Request struct {
 	Protobuf  string `json:"protobuf"`
 }
 
+type ServerConfig struct {
+	Protocol string `json:"protocol"`
+	Host     string `json:"host"`
+	Port     string `json:"port"`
+}
+
 func main() {
 	hostname, _ := os.Hostname()
 
@@ -61,20 +67,18 @@ func main() {
 		routerPort = "80"
 	}
 
-	routerConfig = &platform.RouterConfig{
-		Protocol: platform.String("http"),
-		Host:     platform.String(ip),
-		Port:     platform.String(routerPort),
-	}
+	routerConfigs := []*platform.RouterConfig{}
+
+	routerConfigs = append(routerConfigs, &platform.RouterConfig{
+		RouterType:   platform.RouterConfig_ROUTER_TYPE_WEBSOCKET.Enum(),
+		ProtocolType: platform.RouterConfig_PROTOCOL_TYPE_HTTP.Enum(),
+		Host:         platform.String(ip),
+		Port:         platform.String(routerPort),
+	})
 
 	server, err := socketio.NewServer(nil)
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	routerConfigBytes, err := platform.Marshal(routerConfig)
-	if err == nil {
-		publisher.Publish("router.online", routerConfigBytes)
 	}
 
 	server.On("connection", func(so socketio.Socket) {
@@ -161,16 +165,16 @@ func main() {
 	mux.Handle("/server", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		cb := req.FormValue("callback")
 
-		var routerConfig *platform.RouterConfig
+		var serverConfig *ServerConfig
 		if req.TLS != nil {
 			log.Println("Request was sent over ssl")
-			routerConfig = buildRouterConfig("443", ip)
+			serverConfig = buildRouterConfig("443", ip)
 		} else {
 			log.Println("Request was *NOT* sent over ssl")
-			routerConfig = buildRouterConfig(routerPort, ip)
+			serverConfig = buildRouterConfig(routerPort, ip)
 		}
 
-		jsonBytes, _ := json.Marshal(routerConfig)
+		jsonBytes, _ := json.Marshal(serverConfig)
 		if cb == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write(jsonBytes)
@@ -202,13 +206,37 @@ func main() {
 	if _, err = os.Stat(KEY); err == nil {
 		if _, err = os.Stat(CERT); err == nil {
 			log.Println("KEY and CERT exist, serving TLS.")
+			routerConfigs = append(routerConfigs, &platform.RouterConfig{
+				RouterType:   platform.RouterConfig_ROUTER_TYPE_WEBSOCKET.Enum(),
+				ProtocolType: platform.RouterConfig_PROTOCOL_TYPE_HTTPS.Enum(),
+				Host:         platform.String(ip),
+				Port:         platform.String("443"),
+			})
+
 			go func() {
 				n.RunTLS(fmt.Sprintf(":%s", "443"), CERT, KEY)
 			}()
 		}
 	}
 
-	n.Run(fmt.Sprintf(":%s", routerPort))
+	go func() {
+		n.Run(fmt.Sprintf(":%s", routerPort))
+	}()
+
+	done := make(chan bool)
+	time.AfterFunc(10*time.Second, func() {
+		time.Sleep(time.Second * 10)
+
+		routerConfigList := &platform.RouterConfigList{
+			RouterConfigs: routerConfigs,
+		}
+
+		routerConfigListBytes, err := platform.Marshal(routerConfigList)
+		if err == nil {
+			publisher.Publish("router.online", routerConfigListBytes)
+		}
+	})
+	<-done
 }
 
 func getMyIp() (string, error) {
@@ -312,20 +340,19 @@ func formatHostAddress(ip string) string {
 	return fmt.Sprintf("%s.%s", hostAddress, "microplatform.io")
 }
 
-func buildRouterConfig(port, ip string) *platform.RouterConfig {
+func buildRouterConfig(port, ip string) *ServerConfig {
 
 	if port == "443" {
-		return &platform.RouterConfig{
-			Protocol: platform.String("https"),
-			Host:     platform.String(formatHostAddress(ip)),
-			Port:     platform.String("443"),
+		return &ServerConfig{
+			Protocol: "https",
+			Host:     formatHostAddress(ip),
+			Port:     "443",
 		}
 	}
 
-	return &platform.RouterConfig{
-		Protocol: platform.String("http"),
-		Host:     platform.String(formatHostAddress(ip)),
-		Port:     platform.String(port),
+	return &ServerConfig{
+		Protocol: "http",
+		Host:     formatHostAddress(ip),
+		Port:     port,
 	}
-
 }
