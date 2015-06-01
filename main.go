@@ -225,8 +225,6 @@ func main() {
 
 	done := make(chan bool)
 	time.AfterFunc(10*time.Second, func() {
-		time.Sleep(time.Second * 10)
-
 		routerConfigList := &platform.RouterConfigList{
 			RouterConfigs: routerConfigs,
 		}
