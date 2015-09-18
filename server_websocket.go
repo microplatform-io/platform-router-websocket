@@ -66,7 +66,7 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 				for {
 					select {
 					case response := <-responses:
-						log.Printf("{socket_id:'%s'} - got the a response for request: %s", socketId, platformRequest.GetUuid())
+						log.Printf("{socket_id:'%s'} - got a response for request: %s", socketId, platformRequest.GetUuid())
 
 						response.Uuid = platform.String(strings.Replace(response.GetUuid(), requestUuidPrefix, "", -1))
 
