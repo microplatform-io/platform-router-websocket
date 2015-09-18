@@ -1,26 +1,21 @@
 package main
 
 import (
-	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/microplatform-io/platform"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
-	"regexp"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
-	"github.com/JacobSquires/negroni"
-	"github.com/googollee/go-socket.io"
+	"github.com/microplatform-io/platform"
 )
 
 const (
-	KEY  = "./key"
-	CERT = "./cert"
+	SSL_CERT_FILE = "/tmp/ssl_cert"
+	SSL_KEY_FILE  = "/tmp/ssl_key"
 )
 
 var (
@@ -29,19 +24,8 @@ var (
 	rabbitAddr = os.Getenv("RABBITMQ_PORT_5672_TCP_ADDR")
 	rabbitPort = os.Getenv("RABBITMQ_PORT_5672_TCP_PORT")
 
-	routerPort = os.Getenv("PORT")
-
-	rabbitRegex            = regexp.MustCompile("RABBITMQ_[0-9]_PORT_5672_TCP_(ADDR|PORT)")
-	amqpConnectionManagers []*platform.AmqpConnectionManager
-	routerConfig           *platform.RouterConfig
+	routerPort = platform.Getenv("PORT", "443")
 )
-
-type Request struct {
-	RequestId string `json:"request_id"`
-	Method    int32  `json:"method"`
-	Resource  int32  `json:"resource"`
-	Protobuf  string `json:"protobuf"`
-}
 
 type ServerConfig struct {
 	Protocol string `json:"protocol"`
@@ -50,286 +34,71 @@ type ServerConfig struct {
 }
 
 func main() {
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+
 	hostname, _ := os.Hostname()
 
-	publisher := getDefaultPublisher()
+	routerUri := "router-" + hostname
 
-	subscriber := getDefaultSubscriber("router_" + hostname)
-
-	standardRouter := platform.NewStandardRouter(publisher, subscriber)
-
-	ip, err := getMyIp()
+	serverIpAddr, err := platform.GetMyIp()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if routerPort == "" {
-		routerPort = "80"
+	connectionManager := platform.NewAmqpConnectionManager(rabbitUser, rabbitPass, rabbitAddr+":"+rabbitPort, "")
+
+	router := platform.NewStandardRouter(getDefaultPublisher(connectionManager), getDefaultSubscriber(connectionManager, routerUri))
+
+	if err := ioutil.WriteFile(SSL_CERT_FILE, []byte(strings.Replace(os.Getenv("SSL_CERT"), "\\n", "\n", -1)), 0755); err != nil {
+		log.Fatalf("> failed to write SSL cert file: %s", err)
 	}
 
-	routerConfigs := []*platform.RouterConfig{}
+	if err := ioutil.WriteFile(SSL_KEY_FILE, []byte(strings.Replace(os.Getenv("SSL_KEY"), "\\n", "\n", -1)), 0755); err != nil {
+		log.Fatalf("> failed to write SSL cert file: %s", err)
+	}
 
-	routerConfigs = append(routerConfigs, &platform.RouterConfig{
-		RouterType:   platform.RouterConfig_ROUTER_TYPE_WEBSOCKET.Enum(),
-		ProtocolType: platform.RouterConfig_PROTOCOL_TYPE_HTTP.Enum(),
-		Host:         platform.String(ip),
-		Port:         platform.String(routerPort),
-	})
-
-	server, err := socketio.NewServer(nil)
+	socketioServer, err := CreateSocketioServer(serverIpAddr, router)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("> failed to create socketio server: %s", err)
 	}
 
-	server.On("connection", func(so socketio.Socket) {
-		socketId := so.Id()
-
-		log.Printf("{socket_id:'%s'} - connected", socketId)
-
-		so.On("request", func(msg string) {
-			go func() {
-				request := &Request{}
-				if err := json.Unmarshal([]byte(msg), request); err != nil {
-					log.Println("{socket_id:'%s', request_id:''} - failed to decode request:", socketId, err)
-					return
-				}
-
-				log.Printf("{socket_id:'%s', request_id:'%s'} - decoding hex encoded protobuf", socketId, request.RequestId)
-
-				protobufBytes, err := hex.DecodeString(request.Protobuf)
-				if err != nil {
-					log.Printf("{socket_id:'%s', request_id:'%s'} - failed to decode protobuf hex string: %s", socketId, request.RequestId, err)
-					return
-				}
-
-				log.Printf("Ip Addr of client is : %s", so.Request().RemoteAddr)
-
-				platformRequest := &platform.Request{}
-				err = platform.Unmarshal(protobufBytes, platformRequest)
-
-				if err == nil {
-					ipAddr := so.Request().RemoteAddr
-					platformRequest.IpAddress = platform.String(ipAddr[:strings.Index(ipAddr, ":")]) // lets just chop off the port
-
-					newProtobufBytes, err := platform.Marshal(platformRequest)
-					if err == nil {
-						protobufBytes = newProtobufBytes
-					}
-				}
-
-				log.Printf("{socket_id:'%s', request_id:'%s'} - routing message", socketId, request.RequestId)
-
-				routedMessage, err := standardRouter.Route(&platform.RoutedMessage{
-					Method:   platform.Int32(request.Method),
-					Resource: platform.Int32(request.Resource),
-					Body:     protobufBytes,
-				}, 55*time.Second)
-				if err != nil {
-					log.Printf("{socket_id:'%s', request_id:'%s'} - failed to route message: %s", socketId, request.RequestId, err)
-					return
-				}
-
-				log.Printf("{socket_id:'%s', request_id:'%s'} - marshalling response", socketId, request.RequestId)
-
-				responseBytes, err := json.Marshal(&Request{
-					RequestId: request.RequestId,
-					Method:    routedMessage.GetMethod(),
-					Resource:  routedMessage.GetResource(),
-					Protobuf:  hex.EncodeToString(routedMessage.GetBody()),
-				})
-				if err != nil {
-					log.Printf("{socket_id:'%s', request_id:'%s'} - failed to marshal response: %s", socketId, request.RequestId, err)
-					return
-				}
-
-				log.Printf("{socket_id:'%s', request_id:'%s'} - emitting response to the client", socketId, request.RequestId)
-
-				if err := so.Emit(request.RequestId, string(responseBytes)); err != nil {
-					log.Printf("{socket_id:'%s', request_id:'%s'} - failed to emit response to the client: %s", socketId, request.RequestId, err)
-				}
-			}()
-		})
-
-		so.On("disconnection", func() {
-			log.Printf("{socket_id:'%s'} - disconnected", socketId)
-		})
-	})
-
-	server.On("error", func(so socketio.Socket, err error) {
-		log.Printf("{socket_id:'%s'} - error: %s", so.Id(), err)
-	})
-
-	mux := http.NewServeMux()
-	mux.Handle("/socket.io/", server)
-	mux.Handle("/", http.FileServer(http.Dir("./asset")))
-	mux.Handle("/server", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		cb := req.FormValue("callback")
-
-		var serverConfig *ServerConfig
-		if req.TLS != nil {
-			log.Println("Request was sent over ssl")
-			serverConfig = buildRouterConfig("443", ip)
-		} else {
-			log.Println("Request was *NOT* sent over ssl")
-			serverConfig = buildRouterConfig(routerPort, ip)
-		}
-
-		jsonBytes, _ := json.Marshal(serverConfig)
-		if cb == "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write(jsonBytes)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/javascript")
-		fmt.Fprintf(w, fmt.Sprintf("%s(%s)", cb, jsonBytes))
-	}))
-
-	n := negroni.Classic()
-	n.Use(negroni.HandlerFunc(func(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-		if origin := r.Header.Get("Origin"); origin != "" {
-			w.Header().Add("Access-Control-Allow-Origin", origin)
-		} else {
-			w.Header().Add("Access-Control-Allow-Origin", "null")
-		}
-
-		w.Header().Add("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE")
-		w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Add("Access-Control-Allow-Credentials", "true")
-		w.Header().Add("Connection", "keep-alive")
-
-		next(w, r)
-	}))
-	n.UseHandler(mux)
-
-	// check if key and cert file exist, if so run tls server as well
-	if _, err = os.Stat(KEY); err == nil {
-		if _, err = os.Stat(CERT); err == nil {
-			log.Println("KEY and CERT exist, serving TLS.")
-			routerConfigs = append(routerConfigs, &platform.RouterConfig{
+	manageRouterState(&platform.RouterConfigList{
+		RouterConfigs: []*platform.RouterConfig{
+			&platform.RouterConfig{
 				RouterType:   platform.RouterConfig_ROUTER_TYPE_WEBSOCKET.Enum(),
 				ProtocolType: platform.RouterConfig_PROTOCOL_TYPE_HTTPS.Enum(),
-				Host:         platform.String(ip),
-				Port:         platform.String("443"),
-			})
-
-			go func() {
-				n.RunTLS(fmt.Sprintf(":%s", "443"), CERT, KEY)
-			}()
-		}
-	}
-
-	go func() {
-		n.Run(fmt.Sprintf(":%s", routerPort))
-	}()
-
-	done := make(chan bool)
-	time.AfterFunc(10*time.Second, func() {
-		routerConfigList := &platform.RouterConfigList{
-			RouterConfigs: routerConfigs,
-		}
-
-		routerConfigListBytes, err := platform.Marshal(routerConfigList)
-		if err == nil {
-			publisher.Publish("router.online", routerConfigListBytes)
-		}
+				Host:         platform.String(serverIpAddr),
+				Port:         platform.String(routerPort),
+			},
+		},
 	})
-	<-done
+
+	mux := CreateServeMux(&ServerConfig{
+		Protocol: "https",
+		Host:     formatHostAddress(serverIpAddr),
+		Port:     routerPort, // we just use this here because this is where it reports it
+	})
+	mux.Handle("/socket.io/", socketioServer)
+
+	ListenForHttpServer(routerUri, mux)
 }
 
-func getMyIp() (string, error) {
-	urls := []string{"http://ifconfig.me/ip", "http://curlmyip.com", "http://icanhazip.com"}
-	respChan := make(chan *http.Response)
-
-	for _, url := range urls {
-		go func(url string, responseChan chan *http.Response) {
-			res, err := http.Get(url)
-			if err == nil {
-				responseChan <- res
-			}
-		}(url, respChan)
+func getDefaultPublisher(connectionManager *platform.AmqpConnectionManager) platform.Publisher {
+	publisher, err := platform.NewAmqpPublisher(connectionManager)
+	if err != nil {
+		log.Fatalf("Could not create publisher. %s", err)
 	}
 
-	select {
-	case res := <-respChan:
-		defer res.Body.Close()
-		body, err := ioutil.ReadAll(res.Body)
-		if err != nil {
-			return "", err
-		}
-		return strings.Trim(string(body), "\n "), nil
-	case <-time.After(time.Second * 5):
-		return "", errors.New("Timed out trying to fetch ip address.")
-	}
+	return publisher
 }
 
-func getDefaultPublisher() platform.Publisher {
-
-	publishers := []platform.Publisher{}
-
-	connMgrs := getAmqpConnectionManagers()
-	for _, connMgr := range connMgrs {
-
-		publisher, err := platform.NewAmqpPublisher(connMgr)
-		if err != nil {
-			log.Printf("Could not create publisher. %s", err)
-			continue
-		}
-		publishers = append(publishers, publisher)
+func getDefaultSubscriber(connectionManager *platform.AmqpConnectionManager, queue string) platform.Subscriber {
+	subscriber, err := platform.NewAmqpSubscriber(connectionManager, queue)
+	if err != nil {
+		log.Fatalf("Could not create subscriber. %s", err)
 	}
 
-	if len(publishers) == 0 {
-
-		log.Fatalln("Failed to create a single publisher.\n")
-	}
-
-	return platform.NewMultiPublisher(publishers...)
-
-}
-
-func getDefaultSubscriber(queue string) platform.Subscriber {
-	subscribers := []platform.Subscriber{}
-	connMgrs := getAmqpConnectionManagers()
-	for _, connMgr := range connMgrs {
-
-		subscriber, err := platform.NewAmqpSubscriber(connMgr, queue)
-		if err != nil {
-			log.Printf("Could not create subscriber. %s", err)
-			continue
-		}
-		subscribers = append(subscribers, subscriber)
-	}
-
-	if len(subscribers) == 0 {
-		log.Fatalln("Failed to create a single subscriber.\n")
-	}
-
-	return platform.NewMultiSubscriber(subscribers...)
-}
-
-func getAmqpConnectionManagers() []*platform.AmqpConnectionManager {
-	if amqpConnectionManagers != nil {
-		return amqpConnectionManagers
-	}
-
-	amqpConnectionManagers := []*platform.AmqpConnectionManager{}
-
-	count := 0
-	for _, v := range os.Environ() {
-		if rabbitRegex.MatchString(v) {
-			count++
-		}
-	}
-
-	if count == 0 { // No match for multiple rabbitmq servers, try and use single rabbitmq environment variables
-		amqpConnectionManagers = append(amqpConnectionManagers, platform.NewAmqpConnectionManager(rabbitUser, rabbitPass, rabbitAddr+":"+rabbitPort, ""))
-	} else if count%2 == 0 { // looking for a piar or rabbitmq addr and port
-		for i := 0; i < count/2; i++ {
-			amqpConnectionManagers = append(amqpConnectionManagers, platform.NewAmqpConnectionManager(rabbitUser, rabbitPass, fmt.Sprintf("%s:%s", os.Getenv(fmt.Sprintf("RABBITMQ_%d_PORT_5672_TCP_ADDR", i+1)), os.Getenv(fmt.Sprint("RABBITMQ_%d_PORT_5672_TCP_PORT", i+1))), ""))
-		}
-	}
-
-	return amqpConnectionManagers
+	return subscriber
 }
 
 func formatHostAddress(ip string) string {
@@ -338,19 +107,29 @@ func formatHostAddress(ip string) string {
 	return fmt.Sprintf("%s.%s", hostAddress, "microplatform.io")
 }
 
-func buildRouterConfig(port, ip string) *ServerConfig {
+func manageRouterState(routerConfigList *platform.RouterConfigList) {
+	log.Printf("%+v", routerConfigList)
 
-	if port == "443" {
-		return &ServerConfig{
-			Protocol: "https",
-			Host:     formatHostAddress(ip),
-			Port:     "443",
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+	// Emit a router offline signal if we catch an interrupt
+	go func() {
+		select {
+		case <-sigc:
+			// TODO: UPDATE ETCD WITH OFFLINE
+
+			os.Exit(0)
 		}
-	}
+	}()
 
-	return &ServerConfig{
-		Protocol: "http",
-		Host:     formatHostAddress(ip),
-		Port:     port,
-	}
+	// Wait for the servers to come online, and then repeat the router.online every 30 seconds
+	time.AfterFunc(10*time.Second, func() {
+		// TODO: UPDATE ETCD WITH ONLINE
+
+		for {
+			time.Sleep(30 * time.Second)
+			// TODO: UPDATE ETCD WITH ONLINE
+		}
+	})
 }
