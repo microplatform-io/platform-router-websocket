@@ -48,6 +48,7 @@ func main() {
 	connectionManager := platform.NewAmqpConnectionManager(rabbitUser, rabbitPass, rabbitAddr+":"+rabbitPort, "")
 
 	router := platform.NewStandardRouter(getDefaultPublisher(connectionManager), getDefaultSubscriber(connectionManager, routerUri))
+	router.SetHeartbeatTimeout(2 * time.Second)
 
 	if err := ioutil.WriteFile(SSL_CERT_FILE, []byte(strings.Replace(os.Getenv("SSL_CERT"), "\\n", "\n", -1)), 0755); err != nil {
 		log.Fatalf("> failed to write SSL cert file: %s", err)
