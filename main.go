@@ -38,12 +38,12 @@ func main() {
 
 	hostname, _ := os.Hostname()
 
-	routerUri := "router-" + hostname
-
 	serverIpAddr, err := platform.GetMyIp()
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	routerUri := "router-" + serverIpAddr + "-" + hostname
 
 	connectionManager := platform.NewAmqpConnectionManager(rabbitUser, rabbitPass, rabbitAddr+":"+rabbitPort, "")
 

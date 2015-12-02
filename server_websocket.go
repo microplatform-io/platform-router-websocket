@@ -5,8 +5,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/googollee/go-socket.io"
 	"github.com/microplatform-io/platform"
+	"github.com/teltechsystems/go-socket.io"
 )
 
 func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketio.Server, error) {
@@ -89,7 +89,7 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 							return
 						}
 					case <-timeout:
-						log.Printf("{socket_id:'%s'} - got a timeout for request: %s", socketId, platformRequest.GetUuid())
+						log.Printf("{socket_id:'%s'} - got a timeout for request: %s", socketId, platformRequest.Routing.RouteTo[len(platformRequest.Routing.RouteTo)-1].GetUri())
 						return
 					}
 				}
