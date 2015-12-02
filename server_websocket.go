@@ -62,11 +62,16 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 
 			responses, timeout := router.Route(platformRequest)
 
+			routeToUri := ""
+			if len(platformRequest.Routing.RouteTo) > 0 {
+				routeToUri = platformRequest.Routing.RouteTo[len(platformRequest.Routing.RouteTo)-1].GetUri()
+			}
+
 			go func() {
 				for {
 					select {
 					case response := <-responses:
-						log.Printf("{socket_id:'%s'} - got a response for request: %s", socketId, platformRequest.GetUuid())
+						log.Printf("{socket_id:'%s'} - got a response for request: %s - %s", socketId, routeToUri, platformRequest.GetUuid())
 
 						response.Uuid = platform.String(strings.Replace(response.GetUuid(), requestUuidPrefix, "", -1))
 
@@ -75,21 +80,21 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 
 						responseBytes, err := platform.Marshal(response)
 						if err != nil {
-							log.Printf("[subscriber] failed to marshal platform request: %s", err)
+							log.Printf("{socket_id:'%s'} - failed to marshal response: %s - %s - %s", socketId, err, routeToUri, platformRequest.GetUuid())
 							return
 						}
 
 						if err := so.Emit("request", hex.EncodeToString(responseBytes)); err != nil {
-							log.Printf("[subscriber] failed to send platform request: %s", err)
+							log.Printf("{socket_id:'%s'} - failed to emit response: %s - %s - %s", socketId, err, routeToUri, platformRequest.GetUuid())
 							return
 						}
 
 						if response.GetCompleted() {
-							log.Printf("{socket_id:'%s'} - got the final response for request: %s", socketId, platformRequest.GetUuid())
+							log.Printf("{socket_id:'%s'} - got the final response for request: %s - %s", socketId, routeToUri, platformRequest.GetUuid())
 							return
 						}
 					case <-timeout:
-						log.Printf("{socket_id:'%s'} - got a timeout for request: %s", socketId, platformRequest.Routing.RouteTo[len(platformRequest.Routing.RouteTo)-1].GetUri())
+						log.Printf("{socket_id:'%s'} - got a timeout for request: %s - %s", socketId, routeToUri, platformRequest.GetUuid())
 						return
 					}
 				}
