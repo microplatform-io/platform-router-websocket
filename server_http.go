@@ -33,7 +33,7 @@ func ListenForHttpServer(routerUri string, mux *http.ServeMux) {
 	}))
 	n.UseHandler(mux)
 
-	n.RunTLS(":"+routerPort, SSL_CERT_FILE, SSL_KEY_FILE)
+	n.Run(":" + routerPort)
 }
 
 func CreateServeMux(serverConfig *ServerConfig) *http.ServeMux {

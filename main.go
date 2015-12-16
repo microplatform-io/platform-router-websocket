@@ -75,7 +75,7 @@ func main() {
 	})
 
 	mux := CreateServeMux(&ServerConfig{
-		Protocol: "https",
+		Protocol: "http",
 		Host:     formatHostAddress(serverIpAddr),
 		Port:     routerPort, // we just use this here because this is where it reports it
 	})
