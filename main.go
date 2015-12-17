@@ -75,9 +75,9 @@ func main() {
 	})
 
 	mux := CreateServeMux(&ServerConfig{
-		Protocol: "http",
+		Protocol: "https",
 		Host:     formatHostAddress(serverIpAddr),
-		Port:     routerPort, // we just use this here because this is where it reports it
+		Port:     "443", // we just use this here because this is where it reports it
 	})
 	mux.Handle("/socket.io/", socketioServer)
 
