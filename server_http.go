@@ -44,10 +44,11 @@ func CreateServeMux(serverConfig *ServerConfig) *http.ServeMux {
 }
 
 func serverHandler(serverConfig *ServerConfig) func(w http.ResponseWriter, req *http.Request) {
+	jsonBytes, _ := json.Marshal(serverConfig)
+
 	return func(w http.ResponseWriter, req *http.Request) {
 		cb := req.FormValue("callback")
 
-		jsonBytes, _ := json.Marshal(serverConfig)
 		if cb == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write(jsonBytes)
