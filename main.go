@@ -125,9 +125,8 @@ func main() {
 		Protocol: "https",
 		Host:     formatHostAddress(serverIpAddr),
 		Port:     "443", // we just use this here because this is where it reports it
-	})
+	}, router)
 	mux.Handle("/socket.io/", socketioServer)
-
 	ListenForHttpServer(routerUri, mux)
 }
 
