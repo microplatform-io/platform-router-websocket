@@ -5,9 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/microplatform-io/platform"
@@ -19,13 +17,43 @@ const (
 )
 
 var (
-	rabbitUser = os.Getenv("RABBITMQ_USER")
-	rabbitPass = os.Getenv("RABBITMQ_PASS")
-	rabbitAddr = os.Getenv("RABBITMQ_PORT_5672_TCP_ADDR")
-	rabbitPort = os.Getenv("RABBITMQ_PORT_5672_TCP_PORT")
-
-	routerPort = platform.Getenv("PORT", "443")
+	rabbitmqEndpoints = strings.Split(os.Getenv("RABBITMQ_ENDPOINTS"), ",")
+	routerPort        = platform.Getenv("PORT", "80")
 )
+
+type MultiRouter struct {
+	routers []platform.Router
+
+	offset int
+}
+
+func (r *MultiRouter) Route(request *platform.Request) (chan *platform.Request, chan interface{}) {
+	defer r.incrementOffset()
+
+	return r.routers[r.offset].Route(request)
+}
+
+func (r *MultiRouter) RouteWithTimeout(request *platform.Request, timeout time.Duration) (chan *platform.Request, chan interface{}) {
+	defer r.incrementOffset()
+
+	return r.routers[r.offset].RouteWithTimeout(request, timeout)
+}
+
+func (r *MultiRouter) SetHeartbeatTimeout(heartbeatTimeout time.Duration) {
+	for i := range r.routers {
+		r.routers[i].SetHeartbeatTimeout(heartbeatTimeout)
+	}
+}
+
+func (r *MultiRouter) incrementOffset() {
+	r.offset = (r.offset + 1) % len(r.routers)
+}
+
+func NewMultiRouter(routers []platform.Router) *MultiRouter {
+	return &MultiRouter{
+		routers: routers,
+	}
+}
 
 type ServerConfig struct {
 	Protocol string `json:"protocol"`
@@ -45,9 +73,15 @@ func main() {
 
 	routerUri := "router-" + serverIpAddr + "-" + hostname
 
-	connectionManager := platform.NewAmqpConnectionManager(rabbitUser, rabbitPass, rabbitAddr+":"+rabbitPort, "")
+	routers := []platform.Router{}
 
-	router := platform.NewStandardRouter(getDefaultPublisher(connectionManager), getDefaultSubscriber(connectionManager, routerUri))
+	for i := range rabbitmqEndpoints {
+		connectionManager := platform.NewAmqpConnectionManagerWithEndpoint(rabbitmqEndpoints[i])
+
+		routers = append(routers, platform.NewStandardRouter(getDefaultPublisher(connectionManager), getDefaultSubscriber(connectionManager, routerUri)))
+	}
+
+	router := NewMultiRouter(routers)
 	router.SetHeartbeatTimeout(7 * time.Second)
 
 	if err := ioutil.WriteFile(SSL_CERT_FILE, []byte(strings.Replace(os.Getenv("SSL_CERT"), "\\n", "\n", -1)), 0755); err != nil {
@@ -62,17 +96,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("> failed to create socketio server: %s", err)
 	}
-
-	manageRouterState(&platform.RouterConfigList{
-		RouterConfigs: []*platform.RouterConfig{
-			&platform.RouterConfig{
-				RouterType:   platform.RouterConfig_ROUTER_TYPE_WEBSOCKET.Enum(),
-				ProtocolType: platform.RouterConfig_PROTOCOL_TYPE_HTTPS.Enum(),
-				Host:         platform.String(serverIpAddr),
-				Port:         platform.String(routerPort),
-			},
-		},
-	})
 
 	mux := CreateServeMux(&ServerConfig{
 		Protocol: "https",
@@ -106,31 +129,4 @@ func formatHostAddress(ip string) string {
 	hostAddress := strings.Replace(ip, ".", "-", -1)
 
 	return fmt.Sprintf("%s.%s", hostAddress, "microplatform.io")
-}
-
-func manageRouterState(routerConfigList *platform.RouterConfigList) {
-	log.Printf("%+v", routerConfigList)
-
-	sigc := make(chan os.Signal, 1)
-	signal.Notify(sigc, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-
-	// Emit a router offline signal if we catch an interrupt
-	go func() {
-		select {
-		case <-sigc:
-			// TODO: UPDATE ETCD WITH OFFLINE
-
-			os.Exit(0)
-		}
-	}()
-
-	// Wait for the servers to come online, and then repeat the router.online every 30 seconds
-	time.AfterFunc(10*time.Second, func() {
-		// TODO: UPDATE ETCD WITH ONLINE
-
-		for {
-			time.Sleep(30 * time.Second)
-			// TODO: UPDATE ETCD WITH ONLINE
-		}
-	})
 }
