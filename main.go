@@ -77,8 +77,10 @@ func main() {
 
 	for i := range rabbitmqEndpoints {
 		connectionManager := platform.NewAmqpConnectionManagerWithEndpoint(rabbitmqEndpoints[i])
+		publisher := getDefaultPublisher(connectionManager)
+		subscriber := getDefaultSubscriber(connectionManager, routerUri)
 
-		routers = append(routers, platform.NewStandardRouter(getDefaultPublisher(connectionManager), getDefaultSubscriber(connectionManager, routerUri)))
+		routers = append(routers, platform.NewStandardRouterWithTopic(publisher, subscriber, routerUri))
 	}
 
 	router := NewMultiRouter(routers)
