@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/microplatform-io/platform"
@@ -21,37 +22,58 @@ var (
 	routerPort        = platform.Getenv("PORT", "80")
 )
 
-type MultiRouter struct {
-	routers []platform.Router
+type MultiPublisher struct {
+	publishers []platform.Publisher
 
 	offset int
 }
 
-func (r *MultiRouter) Route(request *platform.Request) (chan *platform.Request, chan interface{}) {
-	defer r.incrementOffset()
+func (p *MultiPublisher) Publish(topic string, body []byte) error {
+	defer p.incrementOffset()
 
-	return r.routers[r.offset].Route(request)
+	return p.publishers[p.offset].Publish(topic, body)
 }
 
-func (r *MultiRouter) RouteWithTimeout(request *platform.Request, timeout time.Duration) (chan *platform.Request, chan interface{}) {
-	defer r.incrementOffset()
-
-	return r.routers[r.offset].RouteWithTimeout(request, timeout)
+func (p *MultiPublisher) incrementOffset() {
+	p.offset = (p.offset + 1) % len(p.publishers)
 }
 
-func (r *MultiRouter) SetHeartbeatTimeout(heartbeatTimeout time.Duration) {
-	for i := range r.routers {
-		r.routers[i].SetHeartbeatTimeout(heartbeatTimeout)
+func NewMultiPublisher(publishers []platform.Publisher) *MultiPublisher {
+	return &MultiPublisher{
+		publishers: publishers,
 	}
 }
 
-func (r *MultiRouter) incrementOffset() {
-	r.offset = (r.offset + 1) % len(r.routers)
+type MultiSubscriber struct {
+	subscribers []platform.Subscriber
 }
 
-func NewMultiRouter(routers []platform.Router) *MultiRouter {
-	return &MultiRouter{
-		routers: routers,
+func (s *MultiSubscriber) Run() error {
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+
+	for i := range s.subscribers {
+		go func(i int) {
+			s.subscribers[i].Run()
+
+			wg.Done()
+		}(i)
+	}
+
+	wg.Wait()
+
+	return nil
+}
+
+func (s *MultiSubscriber) Subscribe(topic string, handler platform.ConsumerHandler) {
+	for i := range s.subscribers {
+		s.subscribers[i].Subscribe(topic, handler)
+	}
+}
+
+func NewMultiSubscriber(subscribers []platform.Subscriber) *MultiSubscriber {
+	return &MultiSubscriber{
+		subscribers: subscribers,
 	}
 }
 
@@ -73,17 +95,17 @@ func main() {
 
 	routerUri := "router-" + serverIpAddr + "-" + hostname
 
-	routers := []platform.Router{}
+	publishers := []platform.Publisher{}
+	subscribers := []platform.Subscriber{}
 
 	for i := range rabbitmqEndpoints {
 		connectionManager := platform.NewAmqpConnectionManagerWithEndpoint(rabbitmqEndpoints[i])
-		publisher := getDefaultPublisher(connectionManager)
-		subscriber := getDefaultSubscriber(connectionManager, routerUri)
 
-		routers = append(routers, platform.NewStandardRouterWithTopic(publisher, subscriber, routerUri))
+		publishers = append(publishers, getDefaultPublisher(connectionManager))
+		subscribers = append(subscribers, getDefaultSubscriber(connectionManager, routerUri))
 	}
 
-	router := NewMultiRouter(routers)
+	router := platform.NewStandardRouter(NewMultiPublisher(publishers), NewMultiSubscriber(subscribers))
 	router.SetHeartbeatTimeout(7 * time.Second)
 
 	if err := ioutil.WriteFile(SSL_CERT_FILE, []byte(strings.Replace(os.Getenv("SSL_CERT"), "\\n", "\n", -1)), 0755); err != nil {
