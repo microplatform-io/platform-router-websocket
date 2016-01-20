@@ -4,12 +4,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/microplatform-io/platform"
 	"log"
 	"net/http"
 	"time"
 
-	"github.com/JacobSquires/negroni"
+	"github.com/codegangsta/negroni"
+	"github.com/microplatform-io/platform"
 )
 
 var (
