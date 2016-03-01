@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/microplatform-io/platform"
+	"github.com/microplatform-io/platform/amqp"
 )
 
 var (
@@ -33,14 +34,19 @@ func main() {
 
 	routerUri := "router-" + serverIpAddr + "-" + hostname
 
-	connectionManagers := platform.NewAmqpConnectionManagersWithEndpoints(rabbitmqEndpoints)
+	amqpDialers := amqp.NewCachingDialers(rabbitmqEndpoints)
 
-	publisher, err := platform.NewAmqpMultiPublisher(connectionManagers)
+	dialerInterfaces := []amqp.DialerInterface{}
+	for i := range amqpDialers {
+		dialerInterfaces = append(dialerInterfaces, amqpDialers[i])
+	}
+
+	publisher, err := amqp.NewMultiPublisher(dialerInterfaces)
 	if err != nil {
 		log.Fatalf("> failed to create multi publisher: %s", err)
 	}
 
-	subscriber, err := platform.NewAmqpMultiSubscriber(connectionManagers, routerUri)
+	subscriber, err := amqp.NewMultiSubscriber(dialerInterfaces, routerUri)
 	if err != nil {
 		log.Fatalf("> failed to create multi subscriber: %s", err)
 	}

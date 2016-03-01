@@ -93,7 +93,8 @@ func healthcheckHandler(router platform.Router) func(w http.ResponseWriter, req 
 
 		platformRequest.Uuid = platform.String(platform.CreateUUID())
 
-		responses, timeout := router.RouteWithTimeout(platformRequest, 1*time.Second)
+		responses, timeout := router.Route(platformRequest)
+
 		for {
 			select {
 			case response := <-responses:
@@ -102,6 +103,10 @@ func healthcheckHandler(router platform.Router) func(w http.ResponseWriter, req 
 					w.Write([]byte("Ok"))
 					return
 				}
+
+			case <-time.After(1 * time.Second):
+				http.Error(w, "Request Timeout", http.StatusRequestTimeout)
+				return
 
 			case <-timeout:
 				http.Error(w, "Request Timeout", http.StatusRequestTimeout)
