@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/microplatform-io/platform"
 	"github.com/teltechsystems/go-socket.io"
@@ -84,10 +85,14 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 							return
 						}
 
+						startTime := time.Now()
+
 						if err := so.Emit("request", hex.EncodeToString(responseBytes)); err != nil {
 							log.Printf("{socket_id:'%s'} - failed to emit response: %s - %s - %s", socketId, err, routeToUri, platformRequest.GetUuid())
 							return
 						}
+
+						log.Printf("{socket_id:'%s'} - time to emit the response: %s - %s - %d nanoseconds", socketId, err, routeToUri, time.Now().Sub(startTime).Nanoseconds())
 
 						if response.GetCompleted() {
 							log.Printf("{socket_id:'%s'} - got the final response for request: %s - %s", socketId, routeToUri, platformRequest.GetUuid())
