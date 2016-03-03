@@ -74,7 +74,7 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 					case response := <-responses:
 						log.Printf("{socket_id:'%s'} - got a response for request: %s - %s", socketId, routeToUri, platformRequest.GetUuid())
 
-						response.Uuid = platform.String(strings.Replace(response.GetUuid(), requestUuidPrefix, "", -1))
+						response.Uuid = platform.String(strings.Replace(response.GetUuid(), requestUuidPrefix, "", 1))
 
 						// Strip off the tail for routing
 						response.Routing.RouteTo = response.Routing.RouteTo[:len(response.Routing.RouteTo)-1]
@@ -92,7 +92,7 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 							return
 						}
 
-						log.Printf("{socket_id:'%s'} - time to emit the response: %s - %s - %d nanoseconds", socketId, err, routeToUri, time.Now().Sub(startTime).Nanoseconds())
+						log.Printf("{socket_id:'%s'} - time to emit the response: %s - %d nanoseconds", socketId, routeToUri, time.Now().Sub(startTime).Nanoseconds())
 
 						if response.GetCompleted() {
 							log.Printf("{socket_id:'%s'} - got the final response for request: %s - %s", socketId, routeToUri, platformRequest.GetUuid())
