@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 var (
 	rabbitmqEndpoints = strings.Split(os.Getenv("RABBITMQ_ENDPOINTS"), ",")
 	routerPort        = platform.Getenv("PORT", "80")
+	logger            = platform.GetLogger("platform-router-websocket")
 )
 
 type ServerConfig struct {
@@ -23,13 +23,11 @@ type ServerConfig struct {
 }
 
 func main() {
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-
 	hostname, _ := os.Hostname()
 
 	serverIpAddr, err := platform.GetMyIp()
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 
 	routerUri := "router-" + serverIpAddr + "-" + hostname
@@ -43,12 +41,12 @@ func main() {
 
 	publisher, err := amqp.NewMultiPublisher(dialerInterfaces)
 	if err != nil {
-		log.Fatalf("> failed to create multi publisher: %s", err)
+		logger.Fatalf("> failed to create multi publisher: %s", err)
 	}
 
 	subscriber, err := amqp.NewMultiSubscriber(dialerInterfaces, routerUri)
 	if err != nil {
-		log.Fatalf("> failed to create multi subscriber: %s", err)
+		logger.Fatalf("> failed to create multi subscriber: %s", err)
 	}
 
 	router := platform.NewStandardRouter(publisher, subscriber)
@@ -56,7 +54,7 @@ func main() {
 
 	socketioServer, err := CreateSocketioServer(serverIpAddr, router)
 	if err != nil {
-		log.Fatalf("> failed to create socketio server: %s", err)
+		logger.Fatalf("> failed to create socketio server: %s", err)
 	}
 
 	mux := CreateServeMux(&ServerConfig{

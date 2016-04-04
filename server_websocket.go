@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/hex"
-	"log"
 	"strings"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketio.Server, error) {
 	server, err := socketio.NewServer(nil)
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 
 	server.On("connection", func(so socketio.Socket) {
@@ -21,21 +20,21 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 
 		clientIpAddr := so.Request().RemoteAddr
 
-		log.Printf("{socket_id:'%s'} - connected", socketId)
-		log.Printf("{socket_id:'%s'} - ip addr of client is : %s", socketId, clientIpAddr)
+		logger.Printf("{socket_id:'%s'} - connected", socketId)
+		logger.Printf("{socket_id:'%s'} - ip addr of client is : %s", socketId, clientIpAddr)
 
 		so.On("request", func(msg string) {
-			log.Printf("{socket_id:'%s'} - got request: %s", socketId, msg)
+			logger.Printf("{socket_id:'%s'} - got request: %s", socketId, msg)
 
 			platformRequestBytes, err := hex.DecodeString(msg)
 			if err != nil {
-				log.Printf("{socket_id:'%s'} - failed to decode platform request bytes from hex string: %s", socketId, err)
+				logger.Errorf("{socket_id:'%s'} - failed to decode platform request bytes from hex string: %s", socketId, err)
 				return
 			}
 
 			platformRequest := &platform.Request{}
 			if err := platform.Unmarshal(platformRequestBytes, platformRequest); err != nil {
-				log.Printf("{socket_id:'%s'} - failed to unmarshal platform request: %s", socketId, err)
+				logger.Errorf("{socket_id:'%s'} - failed to unmarshal platform request: %s", socketId, err)
 				return
 			}
 
@@ -44,7 +43,7 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 			}
 
 			if !platform.RouteToSchemeMatches(platformRequest, "microservice") {
-				log.Printf("{socket_id:'%s'} - unsupported scheme provided: %s", socketId, platformRequest.Routing.RouteTo)
+				logger.Errorf("{socket_id:'%s'} - unsupported scheme provided: %s", socketId, platformRequest.Routing.RouteTo)
 				return
 			}
 
@@ -72,7 +71,7 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 				for {
 					select {
 					case response := <-responses:
-						log.Printf("{socket_id:'%s'} - got a response for request: %s - %s", socketId, routeToUri, platformRequest.GetUuid())
+						logger.Printf("{socket_id:'%s'} - got a response for request: %s - %s", socketId, routeToUri, platformRequest.GetUuid())
 
 						response.Uuid = platform.String(strings.Replace(response.GetUuid(), requestUuidPrefix, "", 1))
 
@@ -81,25 +80,25 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 
 						responseBytes, err := platform.Marshal(response)
 						if err != nil {
-							log.Printf("{socket_id:'%s'} - failed to marshal response: %s - %s - %s", socketId, err, routeToUri, platformRequest.GetUuid())
+							logger.Errorf("{socket_id:'%s'} - failed to marshal response: %s - %s - %s", socketId, err, routeToUri, platformRequest.GetUuid())
 							return
 						}
 
 						startTime := time.Now()
 
 						if err := so.Emit("request", hex.EncodeToString(responseBytes)); err != nil {
-							log.Printf("{socket_id:'%s'} - failed to emit response: %s - %s - %s", socketId, err, routeToUri, platformRequest.GetUuid())
+							logger.Errorf("{socket_id:'%s'} - failed to emit response: %s - %s - %s", socketId, err, routeToUri, platformRequest.GetUuid())
 							return
 						}
 
-						log.Printf("{socket_id:'%s'} - time to emit the response: %s - %d nanoseconds", socketId, routeToUri, time.Now().Sub(startTime).Nanoseconds())
+						logger.Printf("{socket_id:'%s'} - time to emit the response: %s - %d nanoseconds", socketId, routeToUri, time.Now().Sub(startTime).Nanoseconds())
 
 						if response.GetCompleted() {
-							log.Printf("{socket_id:'%s'} - got the final response for request: %s - %s", socketId, routeToUri, platformRequest.GetUuid())
+							logger.Printf("{socket_id:'%s'} - got the final response for request: %s - %s", socketId, routeToUri, platformRequest.GetUuid())
 							return
 						}
 					case <-timeout:
-						log.Printf("{socket_id:'%s'} - got a timeout for request: %s - %s", socketId, routeToUri, platformRequest.GetUuid())
+						logger.Errorf("{socket_id:'%s'} - got a timeout for request: %s - %s", socketId, routeToUri, platformRequest.GetUuid())
 						return
 					}
 				}
@@ -107,12 +106,12 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 		})
 
 		so.On("disconnection", func() {
-			log.Printf("{socket_id:'%s'} - disconnected", socketId)
+			logger.Printf("{socket_id:'%s'} - disconnected", socketId)
 		})
 	})
 
 	server.On("error", func(so socketio.Socket, err error) {
-		log.Printf("{socket_id:'%s'} - error: %s", so.Id(), err)
+		logger.Errorf("{socket_id:'%s'} - error: %s", so.Id(), err)
 	})
 
 	return server, nil

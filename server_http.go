@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -19,7 +18,7 @@ var (
 func ListenForHttpServer(routerUri string, mux *http.ServeMux) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("> http server has died: %s", r)
+			logger.Println("> http server has died: %s", r)
 		}
 	}()
 
@@ -41,7 +40,7 @@ func ListenForHttpServer(routerUri string, mux *http.ServeMux) {
 	n.UseHandler(mux)
 
 	n.Run(":" + routerPort)
-}
+} 
 
 func CreateServeMux(serverConfig *ServerConfig, router platform.Router) *http.ServeMux {
 	mux := http.NewServeMux()
