@@ -22,6 +22,7 @@ func (m *LoggingMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	uuid := platform.CreateUUID()
 
 	logger.Printf("%s - handling %s request to %s", uuid, r.Method, r.RequestURI)
+	logger.Printf("%s - headers %s", uuid, r.Header)
 
 	m.next.ServeHTTP(w, r)
 
