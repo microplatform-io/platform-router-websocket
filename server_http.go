@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/codegangsta/negroni"
 	"github.com/microplatform-io/platform"
 )
 
@@ -15,32 +14,38 @@ var (
 	HEALTH_CHECK_PAYLOAD_VARIABLE = "payload"
 )
 
-func ListenForHttpServer(routerUri string, mux *http.ServeMux) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Println("> http server has died: %s", r)
-		}
-	}()
+type LoggingMiddleware struct {
+	next http.Handler
+}
 
-	n := negroni.Classic()
-	n.Use(negroni.HandlerFunc(func(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-		if origin := r.Header.Get("Origin"); origin != "" {
-			w.Header().Add("Access-Control-Allow-Origin", origin)
-		} else {
-			w.Header().Add("Access-Control-Allow-Origin", "null")
-		}
+func (m *LoggingMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	uuid := platform.CreateUUID()
 
-		w.Header().Add("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE")
-		w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Add("Access-Control-Allow-Credentials", "true")
-		w.Header().Add("Connection", "keep-alive")
+	logger.Printf("%s - handling %s request to %s", uuid, r.Method, r.RequestURI)
 
-		next(w, r)
-	}))
-	n.UseHandler(mux)
+	m.next.ServeHTTP(w, r)
 
-	n.Run(":" + routerPort)
-} 
+	logger.Printf("%s - handled %s request to %s", uuid, r.Method, r.RequestURI)
+}
+
+type AccessControlMiddleware struct {
+	next http.Handler
+}
+
+func (m *AccessControlMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if origin := r.Header.Get("Origin"); origin != "" {
+		w.Header().Add("Access-Control-Allow-Origin", origin)
+	} else {
+		w.Header().Add("Access-Control-Allow-Origin", "null")
+	}
+
+	w.Header().Add("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE")
+	w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Add("Access-Control-Allow-Credentials", "true")
+	w.Header().Add("Connection", "keep-alive")
+
+	m.next.ServeHTTP(w, r)
+}
 
 func CreateServeMux(serverConfig *ServerConfig, router platform.Router) *http.ServeMux {
 	mux := http.NewServeMux()
@@ -50,11 +55,11 @@ func CreateServeMux(serverConfig *ServerConfig, router platform.Router) *http.Se
 	return mux
 }
 
-func serverHandler(serverConfig *ServerConfig) func(w http.ResponseWriter, req *http.Request) {
+func serverHandler(serverConfig *ServerConfig) func(w http.ResponseWriter, r *http.Request) {
 	jsonBytes, _ := json.Marshal(serverConfig)
 
-	return func(w http.ResponseWriter, req *http.Request) {
-		cb := req.FormValue("callback")
+	return func(w http.ResponseWriter, r *http.Request) {
+		cb := r.FormValue("callback")
 
 		if cb == "" {
 			w.Header().Set("Content-Type", "application/json")
@@ -67,9 +72,9 @@ func serverHandler(serverConfig *ServerConfig) func(w http.ResponseWriter, req *
 	}
 }
 
-func healthcheckHandler(router platform.Router) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		requestUrlQuery := req.URL.Query()
+func healthcheckHandler(router platform.Router) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		requestUrlQuery := r.URL.Query()
 		if len(requestUrlQuery) == 0 {
 			w.WriteHeader(http.StatusOK)
 			return

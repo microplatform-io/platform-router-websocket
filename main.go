@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -11,9 +13,13 @@ import (
 )
 
 var (
-	rabbitmqEndpoints = strings.Split(os.Getenv("RABBITMQ_ENDPOINTS"), ",")
-	routerPort        = platform.Getenv("PORT", "80")
-	logger            = platform.GetLogger("platform-router-websocket")
+	RABBITMQ_ENDPOINTS = strings.Split(os.Getenv("RABBITMQ_ENDPOINTS"), ",")
+	PORT_HTTP          = platform.Getenv("PORT_HTTP", "80")
+	PORT_HTTPS         = platform.Getenv("PORT_HTTPS", "443")
+	SSL_CERT           = platform.Getenv("SSL_CERT", "")
+	SSL_KEY            = platform.Getenv("SSL_KEY", "")
+
+	logger = platform.GetLogger("platform-router-websocket")
 )
 
 type ServerConfig struct {
@@ -32,7 +38,7 @@ func main() {
 
 	routerUri := "router-" + serverIpAddr + "-" + hostname
 
-	amqpDialers := amqp.NewCachingDialers(rabbitmqEndpoints)
+	amqpDialers := amqp.NewCachingDialers(RABBITMQ_ENDPOINTS)
 
 	dialerInterfaces := []amqp.DialerInterface{}
 	for i := range amqpDialers {
@@ -57,13 +63,54 @@ func main() {
 		logger.Fatalf("> failed to create socketio server: %s", err)
 	}
 
-	mux := CreateServeMux(&ServerConfig{
-		Protocol: "https",
-		Host:     formatHostAddress(serverIpAddr),
-		Port:     "443", // we just use this here because this is where it reports it
-	}, router)
-	mux.Handle("/socket.io/", socketioServer)
-	ListenForHttpServer(routerUri, mux)
+	go func() {
+		mux := CreateServeMux(&ServerConfig{
+			Protocol: "http",
+			Host:     formatHostAddress(serverIpAddr),
+			Port:     PORT_HTTP,
+		}, router)
+		mux.Handle("/socket.io/", socketioServer)
+
+		wrappedMux := &AccessControlMiddleware{&LoggingMiddleware{mux}}
+
+		err := http.ListenAndServe(":"+PORT_HTTP, wrappedMux)
+		logger.Fatalf("HTTP server has died: %s", err)
+	}()
+
+	if SSL_CERT != "" && SSL_KEY != "" {
+		go func() {
+			certFile, err := ioutil.TempFile("", "cert")
+			if err != nil {
+				logger.Fatalf("failed to write cert file: %s", err)
+			}
+			defer certFile.Close()
+
+			keyFile, err := ioutil.TempFile("", "key")
+			if err != nil {
+				logger.Fatalf("failed to write key file: %s", err)
+			}
+			defer keyFile.Chdir()
+
+			logger.Println(certFile.Name(), keyFile.Name())
+
+			ioutil.WriteFile(certFile.Name(), []byte(strings.Replace(SSL_CERT, "\\n", "\n", -1)), os.ModeTemporary)
+			ioutil.WriteFile(keyFile.Name(), []byte(strings.Replace(SSL_KEY, "\\n", "\n", -1)), os.ModeTemporary)
+
+			mux := CreateServeMux(&ServerConfig{
+				Protocol: "https",
+				Host:     formatHostAddress(serverIpAddr),
+				Port:     PORT_HTTPS,
+			}, router)
+			mux.Handle("/socket.io/", socketioServer)
+
+			wrappedMux := &AccessControlMiddleware{&LoggingMiddleware{mux}}
+
+			err = http.ListenAndServeTLS(":"+PORT_HTTPS, certFile.Name(), keyFile.Name(), wrappedMux)
+			logger.Fatalf("HTTPS server has died: %s", err)
+		}()
+	}
+
+	select {}
 }
 
 func formatHostAddress(ip string) string {
