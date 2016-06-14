@@ -14,6 +14,7 @@ import (
 
 var (
 	RABBITMQ_ENDPOINTS = strings.Split(os.Getenv("RABBITMQ_ENDPOINTS"), ",")
+	EXTERNAL_IP        = platform.Getenv("EXTERNAL_IP", "") // In kubernetes, we need to return the service's external IP
 	PORT_HTTP          = platform.Getenv("PORT_HTTP", "80")
 	PORT_HTTPS         = platform.Getenv("PORT_HTTPS", "443")
 	SSL_CERT           = platform.Getenv("SSL_CERT", "")
@@ -31,12 +32,21 @@ type ServerConfig struct {
 func main() {
 	hostname, _ := os.Hostname()
 
-	serverIpAddr, err := platform.GetMyIp()
-	if err != nil {
-		logger.Fatal(err)
+	externalIP := EXTERNAL_IP
+	if externalIP == "" {
+		logger.Println("An external IP address was not provided, fetching one now")
+
+		discoveredIP, err := platform.GetMyIp()
+		if err != nil {
+			logger.Fatal(err)
+		}
+
+		externalIP = discoveredIP
 	}
 
-	routerUri := "router-" + serverIpAddr + "-" + hostname
+	logger.Printf("This router's IP will be known as: %s", externalIP)
+
+	routerUri := "router-" + externalIP + "-" + hostname
 
 	amqpDialers := amqp.NewCachingDialers(RABBITMQ_ENDPOINTS)
 
@@ -58,7 +68,7 @@ func main() {
 	router := platform.NewStandardRouter(publisher, subscriber)
 	router.SetHeartbeatTimeout(7 * time.Second)
 
-	socketioServer, err := CreateSocketioServer(serverIpAddr, router)
+	socketioServer, err := CreateSocketioServer(externalIP, router)
 	if err != nil {
 		logger.Fatalf("> failed to create socketio server: %s", err)
 	}
@@ -66,7 +76,7 @@ func main() {
 	go func() {
 		mux := CreateServeMux(&ServerConfig{
 			Protocol: "http",
-			Host:     formatHostAddress(serverIpAddr),
+			Host:     formatHostAddress(externalIP),
 			Port:     PORT_HTTP,
 		}, router)
 		mux.Handle("/socket.io/", socketioServer)
@@ -99,7 +109,7 @@ func main() {
 
 			mux := CreateServeMux(&ServerConfig{
 				Protocol: "https",
-				Host:     formatHostAddress(serverIpAddr),
+				Host:     formatHostAddress(externalIP),
 				Port:     PORT_HTTPS,
 			}, router)
 			mux.Handle("/socket.io/", socketioServer)
