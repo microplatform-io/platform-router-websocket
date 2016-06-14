@@ -73,6 +73,7 @@ func main() {
 
 		wrappedMux := &AccessControlMiddleware{&LoggingMiddleware{mux}}
 
+		logger.Println("Serving HTTP: " + PORT_HTTP)
 		err := http.ListenAndServe(":"+PORT_HTTP, wrappedMux)
 		logger.Fatalf("HTTP server has died: %s", err)
 	}()
@@ -105,6 +106,7 @@ func main() {
 
 			wrappedMux := &AccessControlMiddleware{&LoggingMiddleware{mux}}
 
+			logger.Println("Serving HTTPS: " + PORT_HTTPS)
 			err = http.ListenAndServeTLS(":"+PORT_HTTPS, certFile.Name(), keyFile.Name(), wrappedMux)
 			logger.Fatalf("HTTPS server has died: %s", err)
 		}()
