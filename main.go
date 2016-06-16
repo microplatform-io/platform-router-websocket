@@ -20,14 +20,16 @@ var (
 	PORT_HTTPS         = platform.Getenv("PORT_HTTPS", "443")
 	SSL_CERT           = platform.Getenv("SSL_CERT", "")
 	SSL_KEY            = platform.Getenv("SSL_KEY", "")
+	CLIENT_UPGRADE     = platform.Getenv("CLIENT_UPGRADE", "true")
 
 	logger = platform.GetLogger("platform-router-websocket")
 )
 
 type ServerConfig struct {
-	Protocol string `json:"protocol"`
-	Host     string `json:"host"`
-	Port     string `json:"port"`
+	Protocol   string                 `json:"protocol"`
+	Host       string                 `json:"host"`
+	Port       string                 `json:"port"`
+	ClientArgs map[string]interface{} `json:"client_args"`
 }
 
 func main() {
@@ -79,6 +81,9 @@ func main() {
 			Protocol: "http",
 			Host:     formatHostAddress(externalIP),
 			Port:     PORT_HTTP,
+			ClientArgs: map[string]interface{}{
+				"upgrade": CLIENT_UPGRADE == "1" || strings.ToLower(CLIENT_UPGRADE) == "true",
+			},
 		}, router)
 		mux.Handle("/socket.io/", socketioServer)
 
@@ -101,9 +106,7 @@ func main() {
 			if err != nil {
 				logger.Fatalf("failed to write key file: %s", err)
 			}
-			defer keyFile.Chdir()
-
-			logger.Println(certFile.Name(), keyFile.Name())
+			defer keyFile.Close()
 
 			ioutil.WriteFile(certFile.Name(), []byte(strings.Replace(SSL_CERT, "\\n", "\n", -1)), os.ModeTemporary)
 			ioutil.WriteFile(keyFile.Name(), []byte(strings.Replace(SSL_KEY, "\\n", "\n", -1)), os.ModeTemporary)
@@ -112,6 +115,9 @@ func main() {
 				Protocol: "https",
 				Host:     formatHostAddress(externalIP),
 				Port:     PORT_HTTPS,
+				ClientArgs: map[string]interface{}{
+					"upgrade": CLIENT_UPGRADE == "1" || strings.ToLower(CLIENT_UPGRADE) == "true",
+				},
 			}, router)
 			mux.Handle("/socket.io/", socketioServer)
 
