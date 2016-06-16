@@ -112,9 +112,9 @@ func main() {
 			ioutil.WriteFile(keyFile.Name(), []byte(strings.Replace(SSL_KEY, "\\n", "\n", -1)), os.ModeTemporary)
 
 			mux := CreateServeMux(&ServerConfig{
-				Protocol: "http",
+				Protocol: "https",
 				Host:     formatHostAddress(externalIP),
-				Port:     PORT_HTTP,
+				Port:     PORT_HTTPS,
 				ClientArgs: map[string]interface{}{
 					"upgrade": CLIENT_UPGRADE == "1" || strings.ToLower(CLIENT_UPGRADE) == "true",
 				},
