@@ -60,7 +60,7 @@ func CreateSocketioServer(serverIpAddr string, router platform.Router) (*socketi
 
 			platformRequest.Uuid = platform.String(requestUuidPrefix + platformRequest.GetUuid())
 
-			responses, timeout := router.Route(platformRequest)
+			responses, timeout := router.Stream(platformRequest)
 
 			routeToUri := ""
 			if len(platformRequest.Routing.RouteTo) > 0 {

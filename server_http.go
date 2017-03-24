@@ -98,7 +98,7 @@ func healthcheckHandler(router platform.Router) func(w http.ResponseWriter, r *h
 
 		platformRequest.Uuid = platform.String(platform.CreateUUID())
 
-		responses, timeout := router.Route(platformRequest)
+		responses, timeout := router.Stream(platformRequest)
 
 		for {
 			select {
